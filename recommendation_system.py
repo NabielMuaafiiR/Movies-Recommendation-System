@@ -302,11 +302,6 @@ def find_similar_movies(movie_id, num_similar=10):
 
     return similar_movies
 
-# Example usage:
-# Find similar movies for a movie with movieId 1 (Toy Story)
-movie_id_to_find_similar = 1
-similar_movies = find_similar_movies(movie_id_to_find_similar, num_similar=10)
-
 # Find similar movies for a movie with movieId 50 (Usual Suspects, The)
 movie_id_to_find_similar = 50
 similar_movies = find_similar_movies(movie_id_to_find_similar, num_similar=10)
