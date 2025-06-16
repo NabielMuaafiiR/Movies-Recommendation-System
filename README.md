@@ -1,6 +1,6 @@
 # Laporan Proyek Machine Learning - Nabiel Muaafii Rahman
 
-## Domain Proyek
+## Project Overview
 Perkembangan teknologi informasi dan pesatnya pertumbuhan data digital telah membawa dampak besar dalam berbagai aspek kehidupan, termasuk industri hiburan. Salah satu bentuk nyata dari pemanfaatan data dalam dunia hiburan adalah sistem rekomendasi film, yang kini menjadi komponen penting dalam meningkatkan pengalaman pengguna di berbagai platform streaming seperti Netflix, Disney+, dan Amazon Prime. Sistem ini membantu pengguna menemukan film yang sesuai dengan preferensi mereka di tengah jumlah pilihan yang sangat banyak.
 
 Dalam membangun sistem rekomendasi yang efektif, dua pendekatan populer yang sering digunakan adalah Content-Based Filtering dan Collaborative Filtering.
@@ -319,6 +319,96 @@ Epoch 17/50
 Epoch 17: early stopping
 Restoring model weights from the end of the best epoch: 12.
 ```
+### Inference
+#### Content-Based Filtering
+```
+def find_similar_movies(movie_id, num_similar=10):
+    # Find the index of the given movie_id
+    try:
+        movie_index = df_movie_clean[df_movie_clean['movieId'] == movie_id].index[0]
+    except IndexError:
+        print(f"Movie ID {movie_id} not found in the dataset.")
+        return pd.DataFrame()
+
+    # Get the similarity scores for this movie with all other movies
+    similarity_scores = list(enumerate(similarity[movie_index]))
+
+    # Sort the movies based on similarity scores in descending order
+    sorted_similarity_scores = sorted(similarity_scores, key=lambda x: x[1], reverse=True)
+
+    # Get the indices of the most similar movies (exclude the movie itself)
+    top_movie_indices = [i[0] for i in sorted_similarity_scores[1:num_similar+1]]
+
+    # Get the movie details for the similar movies
+    similar_movies = df_movie_clean.iloc[top_movie_indices][['title', 'genres']]
+
+    return similar_movies
+```
+Fungsi find_similar_movies digunakan untuk menghasilkan Top-N rekomendasi film yang mirip dengan film tertentu berdasarkan pendekatan Content-Based Filtering, yang dalam hal ini didasarkan pada kemiripan genre film menggunakan cosine similarity. Fungsi ini pertama-tama mencari indeks dari movieId yang diberikan dalam dataframe df_movie_clean. Setelah menemukan indeks tersebut, fungsi mengambil skor kemiripan (similarity scores) antara film target dengan semua film lainnya dari matriks similarity. Skor-skor ini kemudian diurutkan secara menurun, dan dipilih num_similar film teratas (dengan pengecualian terhadap film itu sendiri). Indeks film-film tersebut digunakan untuk mengambil informasi seperti judul dan genre dari dataframe.
+
+```
+# Find similar movies for a movie with movieId 50 (Usual Suspects, The)
+movie_id_to_find_similar = 50
+similar_movies = find_similar_movies(movie_id_to_find_similar, num_similar=10)
+
+if not similar_movies.empty:
+    print(f"\nTop 10 similar movies for Movie ID {movie_id_to_find_similar} ({df_movie_clean[df_movie_clean['movieId'] == movie_id_to_find_similar]['title'].values[0]}):")
+similar_movies
+```
+Contoh penggunaannya adalah dengan memanggil find_similar_movies(50, 10) yang menghasilkan 10 film yang paling mirip dengan film "The Usual Suspects" (Movie ID 50) sebagai berikut:
+
+![image](https://github.com/user-attachments/assets/c0a58a81-e347-4e6b-8584-5e64859be7cd)
+
+#### Collaborative Filtering
+```
+def recommend_for_user(user_id, num_recommendations=10):
+  user_index = user_to_index.get(user_id)
+  if user_index is None:
+    print(f"User ID {user_id} not found in the training data.")
+    return pd.DataFrame()
+
+  movies_not_rated_by_user = df_movie_clean[~df_movie_clean['movieId'].isin(df_rating[df_rating['userId'] == user_id]['movieId'])]['movieId'].values
+  movies_not_rated_mapped = [movie_to_index[movie_id] for movie_id in movies_not_rated_by_user if movie_id in movie_to_index]
+
+  if not movies_not_rated_mapped:
+      print(f"User ID {user_id} has rated all movies or no new movies are available for recommendation.")
+      return pd.DataFrame()
+
+  user_tensor = tf.constant([user_index] * len(movies_not_rated_mapped), dtype=tf.int32)
+  movies_tensor = tf.constant(movies_not_rated_mapped, dtype=tf.int32)
+
+  # Stack the user and movie tensors into a single input tensor
+  model_input = tf.stack([user_tensor, movies_tensor], axis=1)
+
+  # Make predictions
+  predicted_ratings = model.predict(model_input)
+
+  # Get the top recommended movie indices
+  top_movie_indices = np.argsort(predicted_ratings.flatten())[::-1][:num_recommendations]
+
+  # Map the recommended movie indices back to original movie IDs
+  index_to_movie = {index: movie_id for movie_id, index in movie_to_index.items()}
+  recommended_movie_ids = [index_to_movie[movies_not_rated_mapped[i]] for i in top_movie_indices]
+
+  # Get the movie details for the recommended movies
+  recommended_movies = df_movie_clean[df_movie_clean['movieId'].isin(recommended_movie_ids)]
+
+  return recommended_movies[['title', 'genres']]
+```
+Fungsi recommend_for_user dirancang untuk menghasilkan Top-N rekomendasi film bagi pengguna tertentu menggunakan pendekatan Collaborative Filtering berbasis model neural network (RecommenderNet). Fungsi ini bekerja dengan terlebih dahulu mencari indeks dari user_id yang diberikan menggunakan mapping user_to_index. Selanjutnya, sistem mengidentifikasi daftar film yang belum pernah diberi rating oleh pengguna tersebut, kemudian memetakannya ke dalam indeks movie_to_index agar sesuai dengan format input model. Kemudian, model membentuk tensor berisi kombinasi pasangan (user, movie) untuk semua film yang belum diberi rating, dan melakukan prediksi skor preferensi untuk setiap film tersebut menggunakan model RecommenderNet. Skor-skor tersebut diurutkan secara menurun, dan num_recommendations film dengan skor tertinggi akan diambil sebagai rekomendasi.
+```
+# Example usage:
+user_id_to_recommend_for = 1 # Replace with the desired user ID
+recommendations = recommend_for_user(user_id_to_recommend_for, num_recommendations=10)
+
+if not recommendations.empty:
+    print(f"Top 10 movie recommendations for User ID {user_id_to_recommend_for}:")
+recommendations
+```
+Output dari fungsi ini berupa daftar judul film beserta genre-nya yang direkomendasikan untuk user yang dimaksud, seperti dalam contoh: rekomendasi untuk user_id = 1.
+
+![image](https://github.com/user-attachments/assets/d45283b3-25c9-48a8-b32a-0e67907827a6)
+
 ## Evaluation
 
 ### Penjelasan Matriks
@@ -386,96 +476,6 @@ Nilai Precision@5 sebesar 1.0 menunjukkan bahwa seluruh rekomendasi film yang di
 ![image](https://github.com/user-attachments/assets/eb6e307f-d250-4567-991f-0811d7cab0ef)
 
 Grafik di atas menunjukkan performa model rekomendasi selama proses pelatihan berdasarkan metrik Root Mean Squared Error (RMSE) terhadap data pelatihan (train) dan data pengujian (test) pada setiap epoch. Terlihat bahwa nilai RMSE pada data pelatihan terus menurun secara konsisten hingga akhir pelatihan, menandakan bahwa model semakin baik dalam mempelajari pola dari data latih. Namun, nilai RMSE pada data pengujian menurun di awal, tetapi kemudian cenderung stagnan dan mulai menunjukkan kecenderungan datar setelah sekitar epoch ke-5 hingga ke-16. Pola ini menunjukkan indikasi awal dari overfitting, di mana model terlalu menyesuaikan diri dengan data pelatihan dan tidak lagi mengalami peningkatan performa terhadap data baru. Oleh karena itu, model sebaiknya dievaluasi untuk menentukan titik optimal pelatihan (early stopping), agar dapat menghasilkan performa yang baik dan generalisasi yang lebih kuat.
-
-## Inference
-### Content-Based Filtering
-```
-def find_similar_movies(movie_id, num_similar=10):
-    # Find the index of the given movie_id
-    try:
-        movie_index = df_movie_clean[df_movie_clean['movieId'] == movie_id].index[0]
-    except IndexError:
-        print(f"Movie ID {movie_id} not found in the dataset.")
-        return pd.DataFrame()
-
-    # Get the similarity scores for this movie with all other movies
-    similarity_scores = list(enumerate(similarity[movie_index]))
-
-    # Sort the movies based on similarity scores in descending order
-    sorted_similarity_scores = sorted(similarity_scores, key=lambda x: x[1], reverse=True)
-
-    # Get the indices of the most similar movies (exclude the movie itself)
-    top_movie_indices = [i[0] for i in sorted_similarity_scores[1:num_similar+1]]
-
-    # Get the movie details for the similar movies
-    similar_movies = df_movie_clean.iloc[top_movie_indices][['title', 'genres']]
-
-    return similar_movies
-```
-Fungsi find_similar_movies digunakan untuk menghasilkan Top-N rekomendasi film yang mirip dengan film tertentu berdasarkan pendekatan Content-Based Filtering, yang dalam hal ini didasarkan pada kemiripan genre film menggunakan cosine similarity. Fungsi ini pertama-tama mencari indeks dari movieId yang diberikan dalam dataframe df_movie_clean. Setelah menemukan indeks tersebut, fungsi mengambil skor kemiripan (similarity scores) antara film target dengan semua film lainnya dari matriks similarity. Skor-skor ini kemudian diurutkan secara menurun, dan dipilih num_similar film teratas (dengan pengecualian terhadap film itu sendiri). Indeks film-film tersebut digunakan untuk mengambil informasi seperti judul dan genre dari dataframe.
-
-```
-# Find similar movies for a movie with movieId 50 (Usual Suspects, The)
-movie_id_to_find_similar = 50
-similar_movies = find_similar_movies(movie_id_to_find_similar, num_similar=10)
-
-if not similar_movies.empty:
-    print(f"\nTop 10 similar movies for Movie ID {movie_id_to_find_similar} ({df_movie_clean[df_movie_clean['movieId'] == movie_id_to_find_similar]['title'].values[0]}):")
-similar_movies
-```
-Contoh penggunaannya adalah dengan memanggil find_similar_movies(50, 10) yang menghasilkan 10 film yang paling mirip dengan film "The Usual Suspects" (Movie ID 50) sebagai berikut:
-
-![image](https://github.com/user-attachments/assets/c0a58a81-e347-4e6b-8584-5e64859be7cd)
-
-### Collaborative Filtering
-```
-def recommend_for_user(user_id, num_recommendations=10):
-  user_index = user_to_index.get(user_id)
-  if user_index is None:
-    print(f"User ID {user_id} not found in the training data.")
-    return pd.DataFrame()
-
-  movies_not_rated_by_user = df_movie_clean[~df_movie_clean['movieId'].isin(df_rating[df_rating['userId'] == user_id]['movieId'])]['movieId'].values
-  movies_not_rated_mapped = [movie_to_index[movie_id] for movie_id in movies_not_rated_by_user if movie_id in movie_to_index]
-
-  if not movies_not_rated_mapped:
-      print(f"User ID {user_id} has rated all movies or no new movies are available for recommendation.")
-      return pd.DataFrame()
-
-  user_tensor = tf.constant([user_index] * len(movies_not_rated_mapped), dtype=tf.int32)
-  movies_tensor = tf.constant(movies_not_rated_mapped, dtype=tf.int32)
-
-  # Stack the user and movie tensors into a single input tensor
-  model_input = tf.stack([user_tensor, movies_tensor], axis=1)
-
-  # Make predictions
-  predicted_ratings = model.predict(model_input)
-
-  # Get the top recommended movie indices
-  top_movie_indices = np.argsort(predicted_ratings.flatten())[::-1][:num_recommendations]
-
-  # Map the recommended movie indices back to original movie IDs
-  index_to_movie = {index: movie_id for movie_id, index in movie_to_index.items()}
-  recommended_movie_ids = [index_to_movie[movies_not_rated_mapped[i]] for i in top_movie_indices]
-
-  # Get the movie details for the recommended movies
-  recommended_movies = df_movie_clean[df_movie_clean['movieId'].isin(recommended_movie_ids)]
-
-  return recommended_movies[['title', 'genres']]
-```
-Fungsi recommend_for_user dirancang untuk menghasilkan Top-N rekomendasi film bagi pengguna tertentu menggunakan pendekatan Collaborative Filtering berbasis model neural network (RecommenderNet). Fungsi ini bekerja dengan terlebih dahulu mencari indeks dari user_id yang diberikan menggunakan mapping user_to_index. Selanjutnya, sistem mengidentifikasi daftar film yang belum pernah diberi rating oleh pengguna tersebut, kemudian memetakannya ke dalam indeks movie_to_index agar sesuai dengan format input model. Kemudian, model membentuk tensor berisi kombinasi pasangan (user, movie) untuk semua film yang belum diberi rating, dan melakukan prediksi skor preferensi untuk setiap film tersebut menggunakan model RecommenderNet. Skor-skor tersebut diurutkan secara menurun, dan num_recommendations film dengan skor tertinggi akan diambil sebagai rekomendasi.
-```
-# Example usage:
-user_id_to_recommend_for = 1 # Replace with the desired user ID
-recommendations = recommend_for_user(user_id_to_recommend_for, num_recommendations=10)
-
-if not recommendations.empty:
-    print(f"Top 10 movie recommendations for User ID {user_id_to_recommend_for}:")
-recommendations
-```
-Output dari fungsi ini berupa daftar judul film beserta genre-nya yang direkomendasikan untuk user yang dimaksud, seperti dalam contoh: rekomendasi untuk user_id = 1.
-
-![image](https://github.com/user-attachments/assets/d45283b3-25c9-48a8-b32a-0e67907827a6)
 
 ## Kesimpulan
 Proyek ini berhasil membangun sistem rekomendasi film menggunakan dua pendekatan utama, yaitu Content-Based Filtering dan Collaborative Filtering. Melalui pendekatan Content-Based Filtering, sistem menganalisis kemiripan antar film berdasarkan genre menggunakan metode TF-IDF dan cosine similarity, menghasilkan rekomendasi yang relevan secara konten. Sementara itu, pendekatan Collaborative Filtering dibangun menggunakan model deep learning berbasis embedding untuk mempelajari pola interaksi pengguna dengan film berdasarkan riwayat rating. Evaluasi model dilakukan dengan berbagai metrik, seperti RMSE untuk model collaborative dan Precision@5 untuk model content-based. Hasil evaluasi menunjukkan bahwa model content-based mampu mencapai Precision@5 sebesar 1.0, yang berarti seluruh rekomendasi berada dalam kategori relevan berdasarkan genre. Sedangkan model collaborative menunjukkan penurunan error yang stabil sepanjang epoch, namun mulai mengalami gejala overfitting setelah beberapa iterasi. Dengan demikian, kedua pendekatan memiliki kekuatan dan kelemahannya masing-masing. Model content-based unggul dalam akurasi genre, sedangkan model collaborative lebih baik dalam memahami pola perilaku pengguna. Kombinasi keduanya berpotensi membentuk sistem rekomendasi yang lebih kuat dan personal.
